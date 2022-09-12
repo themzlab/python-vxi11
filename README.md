@@ -38,7 +38,9 @@ over Ethernet.
 
 activate virtual environment as desired and/or make sure to use the specific python interpreter for which you want this module
 
-    python -m pip install git+ssh://git@github.com/themzlab/python-vxi11.git
+    python3 -m pip install git+ssh://git@github.com/themzlab/python-vxi11.git --user
+    or
+    python3 -m pip install git+ssh://git@github.com/themzlab/python-vxi11.git@raiseerrors --user
 
 ## Usage examples
 
