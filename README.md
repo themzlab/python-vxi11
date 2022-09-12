@@ -1,13 +1,29 @@
 # Python VXI-11 Readme
 
-For more information and updates:
+This is for my own use, forked from here:
 http://alexforencich.com/wiki/en/python-vxi11/start
 
-GitHub repository:
+GitHub repository of this fork:
+
+https://github.com/themzlab/python-vxi11/tree/raiseerrors
+
+GitHub repository of original project:
 https://github.com/python-ivi/python-vxi11
 
 Google group:
 https://groups.google.com/d/forum/python-ivi
+
+
+
+## Why the fork
+
+- work on raising errors from socket timeouts to keep my app from crashing
+
+- linting using PyCharm and pylint
+
+- Python 3.9+ and not worry to retain compatibility with older Python versions
+
+  
 
 ## Introduction
 
@@ -16,13 +32,13 @@ over Ethernet.
 
 ## Requirements
 
-* Python 2 or Python 3
+* Python 3.9
 
 ## Installation
 
-Extract and run
+activate virtual environment as desired and/or make sure to use the specific python interpreter for which you want this module
 
-    # python setup.py install
+    python -m pip install git+ssh://git@github.com/themzlab/python-vxi11.git
 
 ## Usage examples
 

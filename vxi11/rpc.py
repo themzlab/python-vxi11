@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.9
+# -*- coding: utf-8 -*-
 """
 Sun RPC version 2 -- RFC1057
 
@@ -15,16 +17,17 @@ XXX not receive a timely reply -- use only for idempotent calls!
 
 XXX There is no provision for call timeout on TCP connections
 
-Original source: http://svn.python.org/projects/python/trunk/Demo/rpc/rpc.py
+Original source: https://svn.python.org/projects/python/trunk/Demo/rpc/rpc.py
 
 """
 
 import xdrlib
 import socket
-import os
 import struct
+import sys
+from typing import Union, Callable
 
-RPCVERSION = 2
+RPC_VERSION = 2
 
 CALL = 0
 REPLY = 1
@@ -52,15 +55,31 @@ AUTH_BADVERF      = 3  # bad verifier (seal broken)
 AUTH_REJECTEDVERF = 4  # verifier expired or replayed
 AUTH_TOOWEAK      = 5  # rejected for security reasons
 
+
 # Exceptions
-class RPCError(Exception): pass
-class RPCBadFormat(RPCError): pass
-class RPCBadVersion(RPCError): pass
-class RPCGarbageArgs(RPCError): pass
-class RPCUnpackError(RPCError): pass
+class RPCError(Exception):
+    pass
+
+
+class RPCBadFormat(RPCError):
+    pass
+
+
+class RPCBadVersion(RPCError):
+    pass
+
+
+class RPCGarbageArgs(RPCError):
+    pass
+
+
+class RPCUnpackError(RPCError):
+    pass
+
 
 def make_auth_null():
     return b''
+
 
 class Packer(xdrlib.Packer):
 
@@ -69,9 +88,9 @@ class Packer(xdrlib.Packer):
         self.pack_enum(flavor)
         self.pack_opaque(stuff)
 
-    def pack_auth_unix(self, stamp, machinename, uid, gid, gids):
+    def pack_auth_unix(self, stamp, machine_name, uid, gid, gids):
         self.pack_uint(stamp)
-        self.pack_string(machinename)
+        self.pack_string(machine_name)
         self.pack_uint(uid)
         self.pack_uint(gid)
         self.pack_uint(len(gids))
@@ -81,7 +100,7 @@ class Packer(xdrlib.Packer):
     def pack_callheader(self, xid, prog, vers, proc, cred, verf):
         self.pack_uint(xid)
         self.pack_enum(CALL)
-        self.pack_uint(RPCVERSION)
+        self.pack_uint(RPC_VERSION)
         self.pack_uint(prog)
         self.pack_uint(vers)
         self.pack_uint(proc)
@@ -97,12 +116,13 @@ class Packer(xdrlib.Packer):
         self.pack_enum(SUCCESS)
         # Caller must add procedure-specific part of reply
 
+
 class Unpacker(xdrlib.Unpacker):
 
     def unpack_auth(self):
         flavor = self.unpack_enum()
         stuff = self.unpack_opaque()
-        return (flavor, stuff)
+        return flavor, stuff
 
     def unpack_callheader(self):
         xid = self.unpack_uint()
@@ -110,7 +130,7 @@ class Unpacker(xdrlib.Unpacker):
         if temp != CALL:
             raise RPCBadFormat('no CALL but %r' % (temp,))
         temp = self.unpack_uint()
-        if temp != RPCVERSION:
+        if temp != RPC_VERSION:
             raise RPCBadVersion('bad RPC version %r' % (temp,))
         prog = self.unpack_uint()
         vers = self.unpack_uint()
@@ -155,16 +175,37 @@ class Unpacker(xdrlib.Unpacker):
         return xid, verf
         # Caller must get procedure-specific part of reply
 
+
+class PortMapperUnpacker(Unpacker):
+
+    def unpack_mapping(self):
+        prog = self.unpack_uint()
+        vers = self.unpack_uint()
+        prot = self.unpack_uint()
+        port = self.unpack_uint()
+        return prog, vers, prot, port
+
+    def unpack_pmaplist(self):
+        return self.unpack_list(self.unpack_mapping)
+
+    def unpack_call_result(self):
+        port = self.unpack_uint()
+        res = self.unpack_opaque()
+        return port, res
+
 # Common base class for clients
 
+
 class Client:
+    unpacker: Union[PortMapperUnpacker, Unpacker]
+    packer: Packer
 
     def __init__(self, host, prog, vers, port):
         self.host = host
         self.prog = prog
         self.vers = vers
         self.port = port
-        self.lastxid = 0 # XXX should be more random?
+        self.lastxid = 0  # XXX should be more random?
         self.cred = None
         self.verf = None
 
@@ -221,12 +262,18 @@ def sendfrag(sock, last, frag):
     header = struct.pack(">I", x)
     sock.sendall(header + frag)
 
+
 def sendrecord(sock, record):
     if len(record) > 0:
         sendfrag(sock, 1, record)
 
+
 def recvfrag(sock):
-    header = sock.recv(4)
+    try:
+        header = sock.recv(4)
+    except socket.timeout:
+        raise EOFError
+
     if len(header) < 4:
         raise EOFError
     x = struct.unpack(">I", header[0:4])[0]
@@ -235,7 +282,8 @@ def recvfrag(sock):
     frag = bytearray()
     while len(frag) < n:
         buf = sock.recv(n - len(frag))
-        if not buf: raise EOFError
+        if not buf:
+            raise EOFError
         frag.extend(buf)
     return last, frag
 
@@ -285,6 +333,8 @@ class RawTCPClient(Client):
 # Client using UDP to a specific port
 
 class RawUDPClient(Client):
+    sock: socket.socket
+
     def __init__(self, host, prog, vers, port):
         Client.__init__(self, host, prog, vers, port)
         self.connect()
@@ -304,7 +354,7 @@ class RawUDPClient(Client):
         except ImportError:
             print('WARNING: select not found, RPC may hang')
             select = None
-        BUFSIZE = 8192 # Max UDP buffer size
+        BUFSIZE = 8192  # Max UDP buffer size
         timeout = 1
         count = 5
         while 1:
@@ -313,9 +363,11 @@ class RawUDPClient(Client):
                 r, w, x = select(r, w, x, timeout)
             if self.sock not in r:
                 count = count - 1
-                if count < 0: raise RPCError('timeout')
-                if timeout < 25: timeout = timeout *2
-##                              print 'RESEND', timeout, count
+                if count < 0:
+                    raise RPCError('timeout')
+                if timeout < 25:
+                    timeout = timeout *2
+                # print 'RESEND', timeout, count
                 self.sock.send(call)
                 continue
             reply = self.sock.recv(BUFSIZE)
@@ -323,7 +375,7 @@ class RawUDPClient(Client):
             u.reset(reply)
             xid, verf = u.unpack_replyheader()
             if xid != self.lastxid:
-##                              print 'BAD xid'
+                # print 'BAD xid'
                 continue
             break
 
@@ -345,7 +397,7 @@ class RawBroadcastUDPClient(RawUDPClient):
         self.reply_handler = reply_handler
 
     def set_timeout(self, timeout):
-        self.timeout = timeout # Use None for infinite timeout
+        self.timeout = timeout  # Use None for infinite timeout
 
     def make_call(self, proc, args, pack_func, unpack_func):
         if pack_func is None and args is not None:
@@ -360,7 +412,7 @@ class RawBroadcastUDPClient(RawUDPClient):
         except ImportError:
             print('WARNING: select not found, broadcast will hang')
             select = None
-        BUFSIZE = 8192 # Max UDP buffer size (for reply)
+        BUFSIZE = 8192  # Max UDP buffer size (for reply)
         replies = []
         if unpack_func is None:
             def dummy(): pass
@@ -425,8 +477,8 @@ class PortMapperPacker(Packer):
         self.pack_uint(prot)
         self.pack_uint(port)
 
-    def pack_pmaplist(self, list):
-        self.pack_list(list, self.pack_mapping)
+    def pack_pmaplist(self, _list):
+        self.pack_list(_list, self.pack_mapping)
 
     def pack_call_args(self, ca):
         prog, vers, proc, args = ca
@@ -436,53 +488,37 @@ class PortMapperPacker(Packer):
         self.pack_opaque(args)
 
 
-class PortMapperUnpacker(Unpacker):
-
-    def unpack_mapping(self):
-        prog = self.unpack_uint()
-        vers = self.unpack_uint()
-        prot = self.unpack_uint()
-        port = self.unpack_uint()
-        return prog, vers, prot, port
-
-    def unpack_pmaplist(self):
-        return self.unpack_list(self.unpack_mapping)
-
-    def unpack_call_result(self):
-        port = self.unpack_uint()
-        res = self.unpack_opaque()
-        return port, res
-
-
 class PartialPortMapperClient:
+    make_call: Callable
 
     def __init__(self):
         self.packer = PortMapperPacker()
+        # noinspection PyTypeChecker
         self.unpacker = PortMapperUnpacker('')
 
     def set(self, mapping):
-        return self.make_call(PMAPPROC_SET, mapping, \
-                self.packer.pack_mapping, \
-                self.unpacker.unpack_uint)
+        return self.make_call(PMAPPROC_SET, mapping,
+                              self.packer.pack_mapping,
+                              self.unpacker.unpack_uint)
 
     def unset(self, mapping):
-        return self.make_call(PMAPPROC_UNSET, mapping, \
-                self.packer.pack_mapping, \
+        return self.make_call(PMAPPROC_UNSET, mapping,
+                self.packer.pack_mapping,
                 self.unpacker.unpack_uint)
 
     def get_port(self, mapping):
-        return self.make_call(PMAPPROC_GETPORT, mapping, \
-                self.packer.pack_mapping, \
+        return self.make_call(PMAPPROC_GETPORT, mapping,
+                self.packer.pack_mapping,
                 self.unpacker.unpack_uint)
 
     def dump(self):
-        return self.make_call(PMAPPROC_DUMP, None, \
-                None, \
+        return self.make_call(PMAPPROC_DUMP, None,
+                None,
                 self.unpacker.unpack_pmaplist)
 
     def callit(self, ca):
-        return self.make_call(PMAPPROC_CALLIT, ca, \
-                self.packer.pack_call_args, \
+        return self.make_call(PMAPPROC_CALLIT, ca,
+                self.packer.pack_call_args,
                 self.unpacker.unpack_call_result)
 
 
@@ -530,17 +566,21 @@ class UDPClient(RawUDPClient):
             pmap.close()
         if port == 0:
             raise RPCError('program not registered')
-        RawUDPClient.__init__(self, host, prog, vers, port)
+        super().__init__(self, host, prog, vers, )
+        # RawUDPClient.__init__(self, host, prog, vers, port)
 
 
 class BroadcastUDPClient(Client):
+    addpackers: Callable
 
-    def __init__(self, bcastaddr, prog, vers):
+    def __init__(self, bcastaddr, prog, vers, host, port):
+        super().__init__(host, prog, vers, port)
         self.pmap = BroadcastUDPPortMapperClient(bcastaddr)
         self.pmap.set_reply_handler(self.my_reply_handler)
         self.prog = prog
         self.vers = vers
         self.user_reply_handler = None
+        self.replies = []
         self.addpackers()
 
     def close(self):
@@ -572,8 +612,7 @@ class BroadcastUDPClient(Client):
             self.unpack_func = unpack_func
         self.replies = []
         packed_args = self.packer.get_buf()
-        dummy_replies = self.pmap.Callit( \
-                (self.prog, self.vers, proc, packed_args))
+        dummy_replies = self.pmap.Callit((self.prog, self.vers, proc, packed_args))
         return self.replies
 
 
@@ -623,11 +662,11 @@ class Server:
             return None # Not worthy of a reply
         self.packer.pack_uint(REPLY)
         temp = self.unpacker.unpack_uint()
-        if temp != RPCVERSION:
+        if temp != RPC_VERSION:
             self.packer.pack_uint(MSG_DENIED)
             self.packer.pack_uint(RPC_MISMATCH)
-            self.packer.pack_uint(RPCVERSION)
-            self.packer.pack_uint(RPCVERSION)
+            self.packer.pack_uint(RPC_VERSION)
+            self.packer.pack_uint(RPC_VERSION)
             return self.packer.get_buf()
         self.packer.pack_uint(MSG_ACCEPTED)
         self.packer.pack_auth((AUTH_NULL, make_auth_null()))
@@ -701,6 +740,7 @@ class TCPServer(Server):
             try:
                 call = recvrecord(sock)
             except EOFError:
+                print('EOFError %s', sys.exc_info()[0])
                 break
             except socket.error:
                 print('socket error:', sys.exc_info()[0])
@@ -735,6 +775,8 @@ class TCPServer(Server):
         finally:
             # Make sure we don't fall through in the parent
             if pid == 0:
+                # noinspection PyProtectedMember
+                # noinspection PyUnresolvedReferences
                 os._exit(0)
 
 
@@ -763,16 +805,17 @@ class UDPServer(Server):
 
 # Simple test program -- dump portmapper status
 
-def test(host = ''):
+def test(host=''):
     pmap = UDPPortMapperClient(host)
-    list = pmap.dump()
-    list.sort()
-    for prog, vers, prot, port in list:
+    _list = pmap.dump()
+    _list.sort()
+    for prog, vers, prot, port in _list:
         st = "%d %d " % (prog, vers)
-        if prot == IPPROTO_TCP: st += "tcp "
-        elif prot == IPPROTO_UDP: st += "udp "
-        else: st += "%d " % prot
+        if prot == IPPROTO_TCP:
+            st += "tcp "
+        elif prot == IPPROTO_UDP:
+            st += "udp "
+        else:
+            st += "%d " % prot
         st += "%d" % port
         print(st)
-
-

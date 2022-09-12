@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.9
+# -*- coding: utf-8 -*-
 """
 
 Python VXI-11 driver
@@ -105,23 +107,24 @@ CMD_BUS_STATUS_TALKER = 6
 CMD_BUS_STATUS_LISTENER = 7
 CMD_BUS_STATUS_BUS_ADDRESS = 8
 
-GPIB_CMD_GTL = 0x01 # go to local
-GPIB_CMD_SDC = 0x04 # selected device clear
-GPIB_CMD_PPC = 0x05 # parallel poll config
-GPIB_CMD_GET = 0x08 # group execute trigger
-GPIB_CMD_TCT = 0x09 # take control
-GPIB_CMD_LLO = 0x11 # local lockout
-GPIB_CMD_DCL = 0x14 # device clear
-GPIB_CMD_PPU = 0x15 # parallel poll unconfigure
-GPIB_CMD_SPE = 0x18 # serial poll enable
-GPIB_CMD_SPD = 0x19 # serial poll disable
-GPIB_CMD_LAD = 0x20 # listen address (base)
-GPIB_CMD_UNL = 0x3F # unlisten
-GPIB_CMD_TAD = 0x40 # talk address (base)
-GPIB_CMD_UNT = 0x5F # untalk
-GPIB_CMD_SAD = 0x60 # my secondary address (base)
-GPIB_CMD_PPE = 0x60 # parallel poll enable (base)
-GPIB_CMD_PPD = 0x70 # parallel poll disable
+GPIB_CMD_GTL = 0x01  # go to local
+GPIB_CMD_SDC = 0x04  # selected device clear
+GPIB_CMD_PPC = 0x05  # parallel poll config
+GPIB_CMD_GET = 0x08  # group execute trigger
+GPIB_CMD_TCT = 0x09  # take control
+GPIB_CMD_LLO = 0x11  # local lockout
+GPIB_CMD_DCL = 0x14  # device clear
+GPIB_CMD_PPU = 0x15  # parallel poll un-configure
+GPIB_CMD_SPE = 0x18  # serial poll enable
+GPIB_CMD_SPD = 0x19  # serial poll disable
+GPIB_CMD_LAD = 0x20  # listen address (base)
+GPIB_CMD_UNL = 0x3F  # un-listen
+GPIB_CMD_TAD = 0x40  # talk address (base)
+GPIB_CMD_UNT = 0x5F  # un-talk
+GPIB_CMD_SAD = 0x60  # my secondary address (base)
+GPIB_CMD_PPE = 0x60  # parallel poll enable (base)
+GPIB_CMD_PPD = 0x70  # parallel poll disable
+
 
 def parse_visa_resource_string(resource_string):
     # valid resource strings:
@@ -131,18 +134,20 @@ def parse_visa_resource_string(resource_string):
     # TCPIP0::10.0.0.1::gpib,5::INSTR
     # TCPIP0::10.0.0.1::usb0::INSTR
     # TCPIP0::10.0.0.1::usb0[1234::5678::MYSERIAL::0]::INSTR
+    # noinspection PyPep8
     m = re.match('^(?P<prefix>(?P<type>TCPIP)\d*)(::(?P<arg1>[^\s:]+))'
             '(::(?P<arg2>[^\s:]+(\[.+\])?))?(::(?P<suffix>INSTR))$',
             resource_string, re.I)
 
     if m is not None:
         return dict(
-                type = m.group('type').upper(),
-                prefix = m.group('prefix'),
-                arg1 = m.group('arg1'),
-                arg2 = m.group('arg2'),
-                suffix = m.group('suffix'),
+                type=m.group('type').upper(),
+                prefix=m.group('prefix'),
+                arg1=m.group('arg1'),
+                arg2=m.group('arg2'),
+                suffix=m.group('suffix'),
         )
+
 
 # Exceptions
 class Vxi11Exception(Exception):
@@ -183,13 +188,16 @@ class Vxi11Exception(Exception):
     def __str__(self):
         return self.msg
 
+
 class Packer(rpc.Packer):
+    # pack_create_link_parms
+
     def pack_device_link(self, link):
         self.pack_int(link)
 
     def pack_create_link_parms(self, params):
-        id, lock_device, lock_timeout, device = params
-        self.pack_int(id)
+        _id, lock_device, lock_timeout, device = params
+        self.pack_int(_id)
         self.pack_bool(lock_device)
         self.pack_uint(lock_timeout)
         self.pack_string(device)
@@ -286,16 +294,17 @@ class Packer(rpc.Packer):
         self.pack_int(error)
         self.pack_opaque(data_out)
 
+
 class Unpacker(rpc.Unpacker):
     def unpack_device_link(self):
         return self.unpack_int()
 
     def unpack_create_link_parms(self):
-        id = self.unpack_int()
+        _id = self.unpack_int()
         lock_device = self.unpack_bool()
         lock_timeout = self.unpack_uint()
         device = self.unpack_string()
-        return id, lock_device, lock_timeout, device
+        return _id, lock_device, lock_timeout, device
 
     def unpack_device_write_parms(self):
         link = self.unpack_int()
@@ -394,15 +403,16 @@ class Unpacker(rpc.Unpacker):
 
 class CoreClient(rpc.TCPClient):
     def __init__(self, host, port=0):
-        self.packer = Packer()
-        self.unpacker = Unpacker('')
+        self.packer: Packer = Packer()
+        # noinspection PyTypeChecker
+        self.unpacker: Unpacker = Unpacker('')
         rpc.TCPClient.__init__(self, host, DEVICE_CORE_PROG, DEVICE_CORE_VERS, port)
 
-    def create_link(self, id, lock_device, lock_timeout, name):
-        params = (id, lock_device, lock_timeout, name)
+    def create_link(self, _id, lock_device, lock_timeout, name):
+        params = (_id, lock_device, lock_timeout, name)
         return self.make_call(CREATE_LINK, params,
-                self.packer.pack_create_link_parms,
-                self.unpacker.unpack_create_link_resp)
+                              self.packer.pack_create_link_parms,
+                              self.unpacker.unpack_create_link_resp)
 
     def device_write(self, link, timeout, lock_timeout, flags, data):
         params = (link, timeout, lock_timeout, flags, data)
@@ -488,18 +498,19 @@ class CoreClient(rpc.TCPClient):
 
 class AbortClient(rpc.TCPClient):
     def __init__(self, host, port=0):
-        self.packer = Packer()
-        self.unpacker = Unpacker('')
+        self.packer: Packer = Packer()
+        # noinspection PyTypeChecker
+        self.unpacker: Unpacker = Unpacker('')
         rpc.TCPClient.__init__(self, host, DEVICE_ASYNC_PROG, DEVICE_ASYNC_VERS, port)
 
     def device_abort(self, link):
         return self.make_call(DEVICE_ABORT, link,
-                self.packer.pack_device_link,
-                self.unpacker.unpack_device_error)
+                              self.packer.pack_device_link,
+                              self.unpacker.unpack_device_error)
 
 
 def list_devices(ip=None, timeout=1):
-    "Detect VXI-11 devices on network"
+    # "Detect VXI-11 devices on network"
 
     if ip is None:
         ip = ['255.255.255.255']
@@ -522,7 +533,7 @@ def list_devices(ip=None, timeout=1):
 
 
 def list_resources(ip=None, timeout=1):
-    "List resource strings for all detected VXI-11 devices"
+    """List resource strings for all detected VXI-11 devices"""
 
     res = []
 
@@ -547,7 +558,7 @@ def list_resources(ip=None, timeout=1):
 
 
 class Device(object):
-    "VXI-11 device interface client"
+    """VXI-11 device interface client"""
     def __init__(self, host, name = None, client_id = None, term_char = None):
         "Create new VXI-11 device object"
 
@@ -656,7 +667,7 @@ class Device(object):
             raise Vxi11Exception(error, 'abort')
 
     def write_raw(self, data):
-        "Write binary data to instrument"
+        """Write binary data to instrument"""
         if self.link is None:
             self.open()
 
@@ -694,7 +705,7 @@ class Device(object):
             num -= size
 
     def read_raw(self, num=-1):
-        "Read binary data from instrument"
+        """Read binary data from instrument"""
         if self.link is None:
             self.open()
 
@@ -738,7 +749,7 @@ class Device(object):
         return bytes(read_data)
 
     def ask_raw(self, data, num=-1):
-        "Write then read binary data"
+        """Write then read binary data"""
         self.write_raw(data)
         return self.read_raw(num)
 

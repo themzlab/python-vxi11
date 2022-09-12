@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.9
+# -*- coding: utf-8 -*-
 #
 # Simple VXI-11 commandline interface
 #
