@@ -273,6 +273,8 @@ def recvfrag(sock):
         header = sock.recv(4)
     except socket.timeout:
         raise EOFError
+    except TimeoutError:
+        raise EOFError
 
     if len(header) < 4:
         raise EOFError
@@ -287,10 +289,12 @@ def recvfrag(sock):
         frag.extend(buf)
     return last, frag
 
+
 def recvrecord(sock):
     record = bytearray()
     last = 0
     while not last:
+        # do we need try here?
         last, frag = recvfrag(sock)
         record.extend(frag)
     return bytes(record)
@@ -314,6 +318,7 @@ class RawTCPClient(Client):
         call = self.packer.get_buf()
         sendrecord(self.sock, call)
         while True:
+            # Todo: we need try/catch here?
             reply = recvrecord(self.sock)
             u = self.unpacker
             u.reset(reply)
